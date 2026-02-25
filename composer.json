@@ -1,0 +1,32 @@
+{
+    "name": "urlcv/seo-audit",
+    "description": "SEO and AI/LLM readiness audit: checks robots.txt, sitemap, llms.txt, on-page meta, structured data, and security headers. Powers the free tool at urlcv.com.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": ["seo", "audit", "llms.txt", "sitemap", "robots.txt", "structured-data", "ai-readiness"],
+    "homepage": "https://urlcv.com/tools/seo-audit",
+    "authors": [{"name": "URLCV", "homepage": "https://urlcv.com"}],
+    "require": {
+        "php": "^8.2"
+    },
+    "suggest": {
+        "illuminate/support": "Required for Laravel integration (Blade views)"
+    },
+    "autoload": {
+        "psr-4": {
+            "URLCV\\SeoAudit\\": "src/"
+        }
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "sort-packages": true
+    },
+    "minimum-stability": "stable",
+    "extra": {
+        "laravel": {
+            "providers": [
+                "URLCV\\SeoAudit\\Laravel\\SeoAuditServiceProvider"
+            ]
+        }
+    }
+}
