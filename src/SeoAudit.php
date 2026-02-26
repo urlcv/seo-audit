@@ -182,7 +182,8 @@ final class SeoAudit
         ];
 
         $hasRobots = $robots !== null && trim($robots) !== '';
-        $blocksRoot = $hasRobots && preg_match('#Disallow:\s*/\s*#m', $robots);
+        // Only fail when root is blocked (Disallow: / at EOL), not Disallow: /path/
+        $blocksRoot = $hasRobots && preg_match('#Disallow:\s*/\s*$#m', $robots);
         $checks['robots_txt'] = [
             'status' => $blocksRoot ? 'fail' : ($hasRobots ? 'pass' : 'warn'),
             'label'  => 'robots.txt',
@@ -190,7 +191,12 @@ final class SeoAudit
             'fix'    => $blocksRoot ? 'Do not Disallow: / for all user-agents.' : ($hasRobots ? null : 'Add a robots.txt at the root of your site.'),
         ];
 
-        $hasSitemap = $sitemap !== null && stripos($sitemap, '<url') !== false;
+        // Accept both regular sitemaps (<url>) and sitemap index files (<sitemap> / <sitemapindex>)
+        $hasSitemap = $sitemap !== null && (
+            stripos($sitemap, '<url>') !== false ||
+            stripos($sitemap, '<sitemap>') !== false ||
+            stripos($sitemap, '<sitemapindex') !== false
+        );
         if (!$hasSitemap && $hasRobots && preg_match('#Sitemap:\s*(\S+)#i', $robots, $m)) {
             $hasSitemap = true;
         }
@@ -347,7 +353,8 @@ final class SeoAudit
             'fix'    => $lang ? null : 'Add <html lang="en"> (or your language code).',
         ];
 
-        $favicon = $xpath->query('//link[@rel="icon"]')->length > 0;
+        // Match rel="icon", rel="shortcut icon", rel="apple-touch-icon", etc.
+        $favicon = $xpath->query('//link[contains(@rel,"icon")]')->length > 0;
         if (!$favicon && $html !== null) {
             $favicon = stripos($html, 'favicon.ico') !== false;
         }
@@ -363,13 +370,61 @@ final class SeoAudit
 
     private function metaContent(\DOMXPath $xpath, string $property): ?string
     {
-        foreach ($xpath->query('//meta[contains(@property,"' . addslashes($property) . '") or contains(@name,"' . addslashes($property) . '")]') as $node) {
-            $v = $node->getAttribute('content') ?? $node->getAttribute('value');
+        $prop = addslashes($property);
+        // Use exact attribute match (=) rather than contains() to avoid false matches
+        // e.g. "og:image" must not match "og:image:width" or "og:image:secure_url"
+        foreach ($xpath->query('//meta[@property="' . $prop . '" or @name="' . $prop . '"]') as $node) {
+            // getAttribute() always returns '' (not null) when absent, so check both manually
+            $v = $node->getAttribute('content');
+            if ($v === '') {
+                $v = $node->getAttribute('value');
+            }
             if ($v !== '') {
                 return $v;
             }
         }
         return null;
+    }
+
+    /**
+     * Returns true only when the given bot has its root disallowed (Disallow: /)
+     * in robots.txt. Handles multi-line user-agent blocks and avoids false
+     * positives from path-specific rules like Disallow: /r/ or Disallow: /s/.
+     */
+    private function botBlockedAtRoot(string $robots, string $bot): bool
+    {
+        // Normalise line endings
+        $text = str_replace("\r\n", "\n", $robots);
+        $lines = explode("\n", $text);
+
+        $inBlock = false;
+        foreach ($lines as $line) {
+            $line = trim($line);
+
+            // Blank line ends the current block
+            if ($line === '' || str_starts_with($line, '#')) {
+                $inBlock = false;
+                continue;
+            }
+
+            if (preg_match('#^User-agent:\s*(.+)#i', $line, $m)) {
+                $agent = trim($m[1]);
+                // Enter block if this user-agent matches the bot or is wildcard (*)
+                if (strcasecmp($agent, $bot) === 0 || $agent === '*') {
+                    $inBlock = true;
+                } elseif (!$inBlock) {
+                    // Different user-agent, and we weren't already in a matching block
+                    $inBlock = false;
+                }
+                continue;
+            }
+
+            if ($inBlock && preg_match('#^Disallow:\s*/\s*$#i', $line)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -406,7 +461,7 @@ final class SeoAudit
         $blocked = [];
         if ($robots !== null) {
             foreach (self::AI_CRAWLERS as $bot) {
-                if (preg_match('#User-agent:\s*' . preg_quote($bot, '#') . '\s*\n[^\n]*Disallow:\s*/#mi', $robots)) {
+                if ($this->botBlockedAtRoot($robots, $bot)) {
                     $blocked[] = $bot;
                 }
             }
@@ -457,11 +512,12 @@ final class SeoAudit
         ];
 
         $xcto = $get('x-content-type-options');
+        $xctoPass = $xcto !== null && stripos($xcto, 'nosniff') !== false;
         $checks['x_content_type_options'] = [
-            'status' => ($xcto !== null && stripos($xcto, 'nosniff') !== false) ? 'pass' : 'warn',
+            'status' => $xctoPass ? 'pass' : 'warn',
             'label'  => 'X-Content-Type-Options',
             'value'  => $xcto ?: 'Missing',
-            'fix'    => $xcto ? null : 'Add X-Content-Type-Options: nosniff.',
+            'fix'    => $xctoPass ? null : 'Add X-Content-Type-Options: nosniff.',
         ];
 
         $xfo = $get('x-frame-options');
