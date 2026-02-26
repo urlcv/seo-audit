@@ -126,7 +126,15 @@ final class SeoAudit
         $headerMap = [];
         if (is_array($headers)) {
             foreach ($headers as $k => $v) {
-                if (is_string($k) && is_string($v)) {
+                if (!is_string($k)) {
+                    continue;
+                }
+                // get_headers() returns an array when the same header appears more than once
+                // (e.g. duplicate security headers from nginx + Laravel). Take the last value.
+                if (is_array($v)) {
+                    $v = end($v);
+                }
+                if (is_string($v)) {
                     $headerMap[strtolower($k)] = $v;
                 }
             }
@@ -137,8 +145,7 @@ final class SeoAudit
 
         $finalUrl = $url;
         if (isset($headerMap['location'])) {
-            $loc = $headerMap['location'];
-            $finalUrl = is_array($loc) ? end($loc) : $loc;
+            $finalUrl = $headerMap['location'];
         }
 
         return [
